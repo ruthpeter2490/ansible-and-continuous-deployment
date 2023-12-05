@@ -1,0 +1,23 @@
+- name: Check Jenkins Job Status
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Fetch Jenkins Job Status
+      ansible.builtin.uri:
+        url: "http://jenkins:8080/job/petclinic_devops/lastBuild/api/json"
+        method: GET
+        return_content: yes
+        status_code: 200
+      register: job_status
+      until: job_status.json.result in ['SUCCESS', 'FAILURE']
+      retries: 30
+      delay: 10
+
+    - name: Run subsequent Ansible playbook on success
+      ansible.builtin.command: ansible-playbook -i inventory.yaml host-deploy.yaml
+      when: job_status.json.result == "SUCCESS"
+
+    - name: Exit if job failed
+      ansible.builtin.fail:
+        msg: "Job failed"
+      when: job_status.json.result == "FAILURE"

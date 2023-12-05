@@ -1,0 +1,93 @@
+---
+- name: Fetch Jenkins Crumb and Trigger Job
+  hosts: localhost  # Assuming Ansible is running locally
+
+  vars:
+    jenkins_user: "admin"  # Replace with your Jenkins username
+    jenkins_password: "admin"  # Replace with your Jenkins password or API token (consider using Ansible Vault for security)
+    jenkins_server: "http://jenkins:8080"
+
+  tasks:
+    - name: Retry until status 200 is received
+      uri:
+        url: "http://jenkins:8080/login?from=%2F"
+        method: GET
+        status_code: 200
+        return_content: yes
+      register: jenkins_response
+      until: jenkins_response.status == 200
+      delay: 30
+      retries: 30
+
+    - name: Fetch Jenkins crumb
+      ansible.builtin.uri:
+        url: "http://jenkins:8080/crumbIssuer/api/xml"
+        method: GET
+        user: "{{ jenkins_user }}"
+        password: "{{ jenkins_password }}"
+        headers:
+           'Authorization' : "Basic {{ (jenkins_user + ':' + jenkins_password) | b64encode }}"
+        return_content: yes
+        status_code: 200
+      register: crumb_response
+
+    - name: Set Jenkins crumb
+      set_fact:
+        crumb: "{{ crumb_response.content | regex_findall('(?<=<crumb>).*(?=</crumb>)') | first }}"
+        crumb_field: "{{ crumb_response.content | regex_findall('(?<=<crumbRequestField>).*(?=</crumbRequestField>)') | first }}"
+
+    - name: Call Jenkins endpoint after initial installation
+      uri:
+        url: "http://jenkins:8080"
+        method: POST
+        user: "{{ jenkins_user }}"
+        password: "{{ jenkins_password }}"
+        headers:
+          "Jenkins-Crumb": "{{ crumb }}"
+          'Authorization' : "Basic {{ (jenkins_user + ':' + jenkins_password) | b64encode }}"
+        status_code: 200
+      delegate_to: localhost
+
+    - name: Call Jenkins setupWizard/completeInstall endpoint
+      uri:
+        url: "http://jenkins:8080/setupWizard/completeInstall"
+        method: POST
+        user: "{{ jenkins_user }}"
+        password: "{{ jenkins_password }}"
+        headers:
+          'Authorization' : "Basic {{ (jenkins_user + ':' + jenkins_password) | b64encode }}"
+          "Jenkins-Crumb": "{{ crumb }}"
+        status_code: 200
+      delegate_to: localhost
+
+    - name: Create Jenkins item (pipeline)
+      uri:
+        url: "http://jenkins:8080/createItem?name=petclinic_devops"
+        method: POST
+        user: "{{ jenkins_user }}"
+        password: "{{ jenkins_password }}"
+        headers:
+          'Authorization' : "Basic {{ (jenkins_user + ':' + jenkins_password) | b64encode }}"
+          "Jenkins-Crumb": "{{ crumb }}"
+          "Content-Type": "text/xml"
+        body: "{{ lookup('file', 'mylocalconfig.xml') }}"
+        status_code: 200
+        return_content: yes
+        force_basic_auth: yes  # To force basic authentication
+      register: response
+      delegate_to: localhost 
+      ignore_errors: yes  # Ignores errors to avoid failing the task
+  
+    - name: Start Jenkins build process
+      uri:
+        url: "http://jenkins:8080/job/petclinic_devops/build?delay=0sec"
+        method: POST
+        user: "admin"
+        password: "admin"
+        headers:
+           'Jenkins-Crumb' : '{{crumb}}'
+           'Authorization' : "Basic {{ (jenkins_user + ':' + jenkins_password) | b64encode }}"
+        return_content: no
+        status_code: 201
+        validate_certs: false # Disable SSL certificate validation
+        use_proxy: yes

@@ -1,0 +1,13 @@
+- name: Execute Command on Host Server
+  hosts: server
+  vars:
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+  tasks:
+    - name: Copy jenkins war file to host war location and run the jar
+      command: cp /var/jenkins_home/workspace/petclinic_devops/target/spring-petclinic-3.2.0-SNAPSHOT.jar /petclinic-app/spring-petclinic-3.2.0-SNAPSHOT.jar
+    - name: run jar
+      shell: |
+        cd /petclinic-app
+        nohup ./deploy.sh > /dev/null 2>&1 &
+      async: 60  # Time limit for the job to run
+      poll: 0    # Return immediately without waiting

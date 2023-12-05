@@ -1,0 +1,8 @@
+---
+- name: Copy public key file to shared location
+  hosts: localhost
+  tasks:
+    - name: Copy public key file
+      copy:
+        src: /keys/connection-key.pub
+        dest: /app/shared_ssh_keys/
